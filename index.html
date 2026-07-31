@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exercise 1 — Non-blocking Chunk Processor</title>
+    <style>
+        :root {
+            --bg: #f6f7f9;
+            --card: #ffffff;
+            --fg: #0f172a;
+            --muted: #64748b;
+            --faint: #94a3b8;
+            --line: #e2e8f0;
+            --inset: #f1f5f9;
+            --accent: #4f46e5;
+            --accent-soft: #eef2ff;
+            --ok: #059669;
+            --ok-soft: #ecfdf5;
+            --warn: #d97706;
+            --danger: #dc2626;
+            --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 8px 24px -12px rgba(15, 23, 42, .18);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0b1120;
+                --card: #131c2e;
+                --fg: #e2e8f0;
+                --muted: #94a3b8;
+                --faint: #64748b;
+                --line: #23304a;
+                --inset: #0e1626;
+                --accent: #818cf8;
+                --accent-soft: #1e1b4b;
+                --ok: #34d399;
+                --ok-soft: #052e26;
+                --warn: #fbbf24;
+                --danger: #f87171;
+                --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -12px rgba(0, 0, 0, .6);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            margin: 0;
+            padding: 48px 24px 80px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .wrap {
+            max-width: 840px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 28px;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .09em;
+            text-transform: uppercase;
+            color: var(--accent);
+            background: var(--accent-soft);
+            padding: 4px 10px;
+            border-radius: 999px;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            font-size: 30px;
+            line-height: 1.15;
+            letter-spacing: -.025em;
+            margin: 0 0 8px;
+            font-weight: 700;
+        }
+
+        .sub {
+            color: var(--muted);
+            font-size: 15px;
+            margin: 0;
+            max-width: 60ch;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .card-head {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--line);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+            color: var(--faint);
+        }
+
+        .card-body {
+            padding: 22px;
+        }
+
+        /* ---- hero: the click test ---- */
+        .hero {
+            display: flex;
+            align-items: center;
+            gap: 22px;
+            flex-wrap: wrap;
+        }
+
+        #btn {
+            font: inherit;
+            font-size: 16px;
+            font-weight: 650;
+            color: #fff;
+            background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 82%, #000));
+            border: none;
+            border-radius: 12px;
+            padding: 16px 34px;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .18), 0 6px 18px -8px var(--accent);
+            transition: transform .08s ease, filter .15s ease;
+        }
+
+        #btn:hover {
+            filter: brightness(1.07);
+        }
+
+        #btn:active {
+            transform: translateY(1px) scale(.985);
+        }
+
+        .counter {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+        }
+
+        #clickCount {
+            font-size: 44px;
+            font-weight: 750;
+            letter-spacing: -.03em;
+            font-variant-numeric: tabular-nums;
+            transition: color .2s ease;
+        }
+
+        #clickCount.live {
+            color: var(--ok);
+        }
+
+        #clickCount.frozen {
+            color: var(--danger);
+        }
+
+        .counter small {
+            font-size: 12px;
+            color: var(--faint);
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        .verdict {
+            margin-left: auto;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 7px 14px;
+            border-radius: 999px;
+            background: var(--inset);
+            color: var(--muted);
+        }
+
+        .verdict.good {
+            background: var(--ok-soft);
+            color: var(--ok);
+        }
+
+        .verdict.bad {
+            background: color-mix(in srgb, var(--danger) 12%, transparent);
+            color: var(--danger);
+        }
+
+        /* ---- controls ---- */
+        .controls {
+            display: flex;
+            gap: 14px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--faint);
+        }
+
+        input,
+        select {
+            font: inherit;
+            font-size: 14px;
+            padding: 9px 12px;
+            border-radius: 9px;
+            border: 1px solid var(--line);
+            background: var(--card);
+            color: var(--fg);
+            transition: border-color .15s, box-shadow .15s;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+        }
+
+        .spacer {
+            flex: 1;
+        }
+
+        .btn {
+            font: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 9px 20px;
+            border-radius: 9px;
+            border: 1px solid var(--line);
+            background: var(--card);
+            color: var(--fg);
+            cursor: pointer;
+            transition: background .15s, border-color .15s;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: var(--inset);
+        }
+
+        .btn:disabled {
+            opacity: .45;
+            cursor: not-allowed;
+        }
+
+        .btn.primary {
+            background: var(--ok);
+            border-color: transparent;
+            color: #fff;
+        }
+
+        .btn.primary:hover:not(:disabled) {
+            filter: brightness(1.08);
+            background: var(--ok);
+        }
+
+        /* ---- progress ---- */
+        .bar {
+            height: 8px;
+            background: var(--inset);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .bar>i {
+            display: block;
+            height: 100%;
+            width: 0;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--accent), var(--ok));
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1px;
+            background: var(--line);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .stat {
+            background: var(--card);
+            padding: 14px 16px;
+        }
+
+        .stat b {
+            display: block;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -.02em;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat span {
+            font-size: 11px;
+            color: var(--faint);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            font-weight: 600;
+        }
+
+        #status {
+            margin-top: 16px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 13px;
+            color: var(--muted);
+            background: var(--inset);
+            border-radius: 10px;
+            padding: 12px 14px;
+            white-space: pre-wrap;
+            margin-bottom: 0;
+        }
+
+        #status.err {
+            color: var(--danger);
+        }
+
+        /* ---- table ---- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 12px 22px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        th {
+            font-size: 11px;
+            color: var(--faint);
+            font-weight: 700;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            background: var(--inset);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr.on {
+            background: var(--accent-soft);
+        }
+
+        code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .tag {
+            font-size: 12px;
+            font-weight: 650;
+            padding: 3px 10px;
+            border-radius: 999px;
+        }
+
+        .tag.y {
+            background: var(--ok-soft);
+            color: var(--ok);
+        }
+
+        .tag.n {
+            background: color-mix(in srgb, var(--danger) 12%, transparent);
+            color: var(--danger);
+        }
+
+        footer {
+            color: var(--faint);
+            font-size: 13px;
+            text-align: center;
+            margin-top: 32px;
+        }
+
+        footer code {
+            color: var(--muted);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <header>
+            <span class="eyebrow">Exercise 1</span>
+            <h1>Non-blocking Chunk Processor</h1>
+            <p class="sub">Hammer the button while it runs. The click counter is the whole test — it only moves if the
+                main thread is actually being released.</p>
+        </header>
+
+        <div class="card">
+            <div class="card-body hero">
+                <button id="btn">Click me</button>
+                <div class="counter">
+                    <span id="clickCount">0</span>
+                    <small>clicks received</small>
+                </div>
+                <span class="verdict" id="verdict">idle</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body controls">
+                <div class="field">
+                    <label for="size">Items</label>
+                    <input id="size" type="number" value="2000000" min="1" step="100000" style="width:130px">
+                </div>
+                <div class="field">
+                    <label for="chunkSize">Chunk size</label>
+                    <input id="chunkSize" type="number" value="1000" min="1" style="width:110px">
+                </div>
+                <div class="field">
+                    <label for="strategy">Yield strategy</label>
+                    <select id="strategy">
+                        <option value="macro">macro — setTimeout</option>
+                        <option value="micro">micro — Promise</option>
+                        <option value="raf">raf — requestAnimationFrame</option>
+                        <option value="idle">idle — requestIdleCallback</option>
+                    </select>
+                </div>
+                <span class="spacer"></span>
+                <button class="btn primary" id="run">Run</button>
+                <button class="btn" id="cancel" disabled>Cancel</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head">Progress</div>
+            <div class="card-body">
+                <div class="bar"><i id="barFill"></i></div>
+                <div class="stats">
+                    <div class="stat"><b id="sDone">—</b><span>processed</span></div>
+                    <div class="stat"><b id="sPct">0%</b><span>complete</span></div>
+                    <div class="stat"><b id="sCalls">0</b><span>onProgress</span></div>
+                    <div class="stat"><b id="sTime">—</b><span>elapsed</span></div>
+                </div>
+                <pre id="status">Not started.</pre>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head">Expected results</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th>Clicks</th>
+                        <th>Progress</th>
+                        <th>Cancel</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr data-s="macro">
+                        <td><code>macro</code></td>
+                        <td><span class="tag y">&gt; 0</span></td>
+                        <td>steps along</td>
+                        <td><span class="tag y">works</span></td>
+                    </tr>
+                    <tr data-s="micro">
+                        <td><code>micro</code></td>
+                        <td><span class="tag n">0</span></td>
+                        <td>only 100% at the end</td>
+                        <td><span class="tag n">dead</span></td>
+                    </tr>
+                    <tr data-s="raf">
+                        <td><code>raf</code></td>
+                        <td><span class="tag y">&gt; 0, smooth</span></td>
+                        <td>~60 times/sec</td>
+                        <td><span class="tag y">works</span></td>
+                    </tr>
+                    <tr data-s="idle">
+                        <td><code>idle</code></td>
+                        <td><span class="tag y">&gt; 0</span></td>
+                        <td>erratic</td>
+                        <td><span class="tag y">works</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>Try <code>macro</code> with chunk size <code>10</code> — yielding too often costs more than the work
+            itself.</footer>
+    </div>
+
+    <script src="index.js"></script>
+    <script>
+        const heavy = n => Math.sqrt(n) * Math.sin(n); // simulated expensive work
+        const $ = id => document.getElementById(id);
+        const fmt = n => n.toLocaleString();
+
+        let clicks = 0;
+        $('btn').onclick = () => {
+            clicks++;
+            $('clickCount').textContent = clicks;
+            console.log('CLICKED', clicks);
+        };
+
+        const highlightRow = s => document.querySelectorAll('tbody tr')
+            .forEach(tr => tr.classList.toggle('on', tr.dataset.s === s));
+        $('strategy').onchange = e => highlightRow(e.target.value);
+        highlightRow($('strategy').value);
+
+        let controller = null;
+
+        $('run').onclick = async () => {
+            controller?.abort();
+            controller = new AbortController();
+
+            clicks = 0;
+            $('clickCount').textContent = '0';
+            $('clickCount').className = '';
+            $('barFill').style.width = '0%';
+            $('status').className = '';
+            $('run').disabled = true;
+            $('cancel').disabled = false;
+            $('verdict').textContent = 'running…';
+            $('verdict').className = 'verdict';
+
+            const items = Array.from({ length: Number($('size').value) }, (_, i) => i);
+            const strategy = $('strategy').value;
+            const chunkSize = Number($('chunkSize').value);
+            const t0 = performance.now();
+            let calls = 0;
+
+            $('status').textContent = `Running with yieldStrategy: '${strategy}' …`;
+
+            try {
+                const result = await processChunked(items, heavy, {
+                    chunkSize,
+                    yieldStrategy: strategy,
+                    signal: controller.signal,
+                    onProgress: (done, total) => {
+                        calls++;
+                        const pct = done / total * 100;
+                        $('barFill').style.width = pct + '%';
+                        $('sDone').textContent = fmt(done);
+                        $('sPct').textContent = pct.toFixed(1) + '%';
+                        $('sCalls').textContent = calls;
+                        $('sTime').textContent = Math.round(performance.now() - t0) + 'ms';
+                    },
+                });
+
+                $('sTime').textContent = Math.round(performance.now() - t0) + 'ms';
+                $('status').textContent =
+                    `Done — ${fmt(result.length)} items processed with '${strategy}'.`;
+
+                const responsive = clicks > 0;
+                $('clickCount').className = responsive ? 'live' : 'frozen';
+                $('verdict').className = 'verdict ' + (responsive ? 'good' : 'bad');
+                $('verdict').textContent = responsive
+                    ? 'UI stayed responsive'
+                    : 'UI was frozen — thread never yielded';
+            } catch (err) {
+                $('sTime').textContent = Math.round(performance.now() - t0) + 'ms';
+                $('status').className = 'err';
+                $('status').textContent =
+                    `${err.name}: ${err.message}\nStopped after ${calls} chunk${calls === 1 ? '' : 's'}.`;
+                $('verdict').className = 'verdict bad';
+                $('verdict').textContent = 'cancelled';
+            } finally {
+                $('run').disabled = false;
+                $('cancel').disabled = true;
+            }
+        };
+
+        $('cancel').onclick = () => controller?.abort();
+    </script>
+</body>
+
+</html>
