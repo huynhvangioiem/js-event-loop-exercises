@@ -15,6 +15,8 @@
  * @returns {Promise<Array>} the results of fn
  * @throws {DOMException} AbortError if the signal is aborted
  */
+const YIELD_STRATEGIES = ["micro", "macro", "raf", "idle"];
+
 async function processChunked(items, fn, options = {}) {
     const {
         chunkSize = 1000,
@@ -22,6 +24,11 @@ async function processChunked(items, fn, options = {}) {
         onProgress,
         signal,
     } = options;
+
+    // fail fast: a typo in yieldStrategy should not wait for the first chunk to surface
+    if (!YIELD_STRATEGIES.includes(yieldStrategy)) {
+        throw new Error(`Unknown yieldStrategy: ${yieldStrategy}`);
+    }
 
     const total = items.length;
     const results = new Array(total); // preallocate so the array never resizes
@@ -63,7 +70,8 @@ async function processChunked(items, fn, options = {}) {
  *   raf   -> resolves right before each paint, at most ~60 times/sec. Slower
  *            than macro, but progress updates exactly once per frame -> smoothest.
  *   idle  -> runs only when the browser is idle. Maximum courtesy to the UI,
- *            but can be delayed for a long time.
+ *            but can be delayed for a long time. Safari has no
+ *            requestIdleCallback, so it falls back to a macrotask there.
  *
  * @param {'micro'|'macro'|'raf'|'idle'} strategy
  * @returns {Promise<void>}
@@ -77,7 +85,11 @@ function yieldTo(strategy) {
         case "raf":
             return new Promise((res) => requestAnimationFrame(() => res()));
         case "idle":
-            return new Promise((res) => requestIdleCallback(() => res()));
+            return new Promise((res) =>
+                typeof requestIdleCallback === "function"
+                    ? requestIdleCallback(() => res())
+                    : setTimeout(res, 0)
+            );
         default:
             throw new Error(`Unknown yieldStrategy: ${strategy}`);
     }
