@@ -1,7 +1,8 @@
 # JS Event Loop Exercises
 
 Hands-on exercises for understanding how the JavaScript event loop actually
-schedules work — each one is verified in a real browser, not by reading about it.
+schedules work, checked in a real browser rather than by reading about it.
+There is one exercise so far; more will be added here.
 
 ## Exercise 1 — Non-blocking Chunk Processor
 
@@ -20,12 +21,13 @@ await processChunked(items, fn, {
 - Releases the main thread between chunks according to `yieldStrategy`
 - Reports `onProgress(done, total)` after every chunk
 - Cancellable mid-flight via `AbortSignal` (rejects with `AbortError`)
+- Throws on an unknown `yieldStrategy` before processing anything
 
-**Files:** [`index.js`](index.js) — implementation · [`index.html`](index.html) — live test harness
+**Files:** [`index.js`](index.js) — implementation · [`index.html`](index.html) — live test harness · [`index.test.js`](index.test.js) — Node tests
 
 ### Running it
 
-Open `index.html` in a browser (or serve the folder). Hammer the **Click me**
+Open `index.html` in a browser (or run `npm start` to serve the folder). Hammer the **Click me**
 button while it runs — the click counter is the entire test. It only moves if
 the main thread is genuinely being released.
 
@@ -35,6 +37,15 @@ the main thread is genuinely being released.
 | `micro` | 0 | only 100% at the end | dead |
 | `raf` | > 0, smooth | ~60 times/sec | works |
 | `idle` | > 0 | erratic | works |
+
+`idle` uses `requestIdleCallback`, which Safari does not have; there it falls
+back to a macrotask, so it behaves like `macro`.
+
+### Tests
+
+`npm test` runs the Node tests (Node 18+) for results, progress, cancellation and
+argument checks. They cover `micro`, `macro` and `idle`; `raf` needs a browser, so
+it is only checked by hand with the harness above.
 
 ### Why `micro` freezes and `macro` doesn't
 
@@ -48,8 +59,8 @@ run one macrotask
 
 `await Promise.resolve()` queues a **microtask**. The queue has to drain
 completely before the browser is allowed to render — but every chunk pushes
-another microtask onto it, so it never drains. All 200 chunks run inside a
-single event loop turn. The browser starves: no paint, no input handling. There
+another microtask onto it, so it never drains. All 2,000 chunks (the harness default: 2,000,000
+items, chunks of 1,000) run inside a single event loop turn. The browser starves: no paint, no input handling. There
 is an `await`, but it never yields the thread.
 
 `setTimeout(res, 0)` queues a **macrotask**, which ends the current turn. The
@@ -74,5 +85,11 @@ the only place worth checking. Which is also why **cancel does nothing under
 ### Worth trying
 
 Run `macro` with `chunkSize: 10`. Total time explodes — browsers clamp nested
-`setTimeout(0)` to ~4ms, so 20,000 chunks spend ~80 seconds just waiting.
-Yielding too often costs more than the work itself.
+`setTimeout(0)` to about 4ms, so the default 2,000,000 items become 200,000
+chunks and about 800 seconds of pure waiting (an estimate from the clamp, not a
+measured number; try a smaller item count to see it quickly). Yielding too often
+costs more than the work itself.
+
+## License
+
+[MIT](LICENSE)
